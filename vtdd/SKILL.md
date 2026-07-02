@@ -1,6 +1,6 @@
 ---
 name: vtdd
-description: Use when implementing or reviewing UI from Figma/design screenshots with Visual TDD. Requires full-fidelity restoration of the provided design and visual reference, Figma node inspection when available, failing visual/metric tests before implementation, runtime screenshot/DOM comparison, and explicit reporting of any uncovered visual gaps.
+description: Use when implementing or reviewing UI from Figma/design screenshots with Visual TDD. Requires full-fidelity restoration of the provided design and visual reference, Figma node inspection when available, failing visual/metric tests before implementation, module-level coverage for every visible functional submodule/form/state, a preflight and user-approval gate before browser visual testing, minimal runtime screenshot/DOM comparison, and explicit reporting of uncovered visual gaps.
 ---
 
 # Visual TDD
@@ -11,7 +11,9 @@ The goal is not "roughly similar." The goal is to turn the design into measurabl
 
 ## Core Rule
 
-Do not claim visual fidelity from a passing broad test. Visual TDD must cover every visible structural unit that affects layout, spacing, typography, color, and state.
+Do not claim visual fidelity from a passing broad test. Visual TDD must cover every visible structural unit that affects layout, spacing, typography, color, and state, and every visible functional submodule that affects whether the screen is complete.
+
+Pixel fidelity is necessary but not sufficient. A visually close shell is still incomplete if a visible module, form variant, drawer, action row, field group, or state shown by the design/user screenshot is missing from tests or implementation.
 
 If the user provides both Figma and a screenshot:
 
@@ -59,7 +61,21 @@ From Figma metadata, create a checklist of every visible node or component group
 
 For each item, record expected `x`, `y`, `width`, `height`, key styles, and parent-relative position where useful.
 
-### 4. Write Failing Tests First
+### 4. Build A Module Inventory
+
+Before writing tests, list every functional submodule visible or implied by the design in the target scope. Treat this as a separate checklist from pixel metrics.
+
+Include, at minimum:
+
+- Each section/card/panel and its intended role.
+- Each form module and all visible fields, labels, values, placeholders, validation/help text, and action affordances.
+- Each mode or variant shown or implied by visible data, such as corporate/personal payment method, bank/card/crypto channel, default/disabled/pending status, login/register/verification mode, expanded/collapsed rows, and empty/error/loading states.
+- Each drawer, modal, popover, upload widget, table row, repeated item, and nested editor opened by a visible action.
+- Each interactive control's expected behavior at the smallest useful level: button opens which module, select changes which fields, delete affects which row, verification action sends which channel.
+
+Write this inventory in the working notes or test descriptions. If a module is intentionally out of scope, name it and get explicit user acceptance. Do not silently omit a visible module because the screenshot focus appears to be layout.
+
+### 5. Write Failing Tests First
 
 Before production code changes, add tests that fail for the current implementation.
 
@@ -67,12 +83,15 @@ Prefer a layered test set:
 
 - **Static contract tests** for CSS/module values that map directly to Figma tokens.
 - **Component DOM tests** for required structure, semantic labels, and shared component reuse.
+- **Module completeness tests** for every visible submodule/form/state from the module inventory. These tests must prove that each field group, action, drawer/modal, row variant, and business branch exists and is wired to the right component.
 - **Runtime visual metric tests** with browser/Playwright when possible: bounding boxes, computed styles, relative positions, full-card height.
 - **Screenshot comparison** when the project has an image-diff harness. If no harness exists, capture screenshot evidence and compare measured DOM rectangles.
 
 Tests must cover the smallest visible units, not only broad containers. Do not stop after testing card/title/input/button if the design has special rows such as "send code," "forgot password," suffix icons, checkbox, or agreement text.
 
-### 5. Confirm Red
+For forms, test every visible field group and every visible or design-implied variant. Example: if a payment section can render corporate and personal account modules, a passing test for only the card shell and one account type is insufficient.
+
+### 6. Confirm Red
 
 Run the new tests before implementation.
 
@@ -84,7 +103,7 @@ The failure must be meaningful:
 
 If a test passes immediately, it either covers existing correct behavior or is too weak. Strengthen it or add a runtime measurement.
 
-### 6. Implement Minimal Green
+### 7. Implement Minimal Green
 
 Change production code only after the red test is proven.
 
@@ -97,9 +116,30 @@ Implementation rules:
 - Preserve business behavior while changing visual structure.
 - Do not hide mismatches by changing tests to match current code.
 
-### 7. Runtime Compare Against Figma
+### 8. Prepare Browser Visual Testing
 
-After tests pass, open the actual route in a browser and measure the rendered UI.
+Use browser visual testing sparingly and deliberately. Before opening or controlling a browser, prepare and report the preflight conditions:
+
+- Dev server command, host, port, and whether an existing service is being reused.
+- Target route, viewport(s), locale, theme, feature flags, and domain/host requirements.
+- Auth/session plan, test account or mocked state, and the exact fixture data needed to render each module variant.
+- Browser tooling status: Playwright/browser binary or Chrome path, screenshot output path, and any known sandbox or permission limitations.
+- Minimal browser action plan: pages to open, clicks/inputs needed, screenshots to capture, and DOM metrics to read.
+
+First inspect the implementation yourself with non-browser evidence: Figma metadata, code, unit/DOM tests, and static screenshots if available. Do not use browser automation as the first discovery tool.
+
+Before AI operates a browser for visual testing, pause and tell the user:
+
+- What has already been checked without a browser.
+- The prepared environment and exact route/viewports/actions.
+- What screenshots or measurements will be collected.
+- Any account/data/sandbox risk.
+
+Wait for explicit user approval before continuing. If the user does not approve, stop before browser control and report the unverified visual areas.
+
+### 9. Runtime Compare Against Figma
+
+After tests pass and the user approves browser visual testing, open the actual route in a browser and measure the rendered UI.
 
 For each important Figma node, compare:
 
@@ -112,7 +152,14 @@ For each important Figma node, compare:
 
 Use exact values where possible. Allow only small browser text-rendering variance when unavoidable, and name the tolerance.
 
-### 8. Screenshot Review
+Keep browser work minimal:
+
+- Prefer one route load per viewport.
+- Prefer computed DOM metrics over repeated manual visual probing.
+- Capture targeted screenshots of the module and one full viewport only when needed.
+- Avoid broad exploratory clicking; use the module inventory to drive only required interactions.
+
+### 10. Screenshot Review
 
 Capture the rendered app screenshot at the same viewport as the user's screenshot when possible.
 
@@ -126,12 +173,12 @@ Compare visually and numerically:
 
 If the browser host blocks the intended domain, use an equivalent route only if it renders the exact same component, and state that substitution.
 
-### 9. Report Honestly
+### 11. Report Honestly
 
 Final or status reports must include:
 
 - Figma node id(s) used.
-- What tests were red and then green.
+- What pixel/metric tests and module completeness tests were red and then green.
 - Runtime measured values for the highest-risk elements.
 - Commands run and pass/fail status.
 - Any remaining mismatches, unavailable tools, or unverified areas.
@@ -147,6 +194,9 @@ Avoid these failures:
 - Ignoring disabled/default state differences such as a "send code" button turning gray.
 - Missing hidden spacing like bottom padding inside a parent frame.
 - Claiming a green test means visual fidelity when the test does not inspect the disputed area.
+- Implementing a visually similar section while omitting form variants, drawers, repeated rows, or business submodules visible in the design.
+- Running browser visual testing without first preparing route/auth/data/browser conditions and pausing for user approval.
+- Using browser automation as broad exploration when a smaller DOM/unit/component test would catch the issue.
 - Updating tests after implementation without first seeing the old implementation fail.
 - Comparing only absolute page coordinates when card-relative coordinates are what matters.
 
@@ -191,14 +241,27 @@ Corrected contract examples from that incident:
 
 When a user says "视觉 TDD" in this project, assume they expect this level of coverage.
 
+## Context From A Later Supplier Basic Info Miss
+
+A later miss happened on the Tiansuan supplier basic information page. The visual shell of the "收款方式" card looked close, but the payment method form module was incomplete.
+
+The key lesson:
+
+- A card-level visual contract is not enough when the card contains business-specific subforms.
+- The module inventory must include the payment method form branches, such as corporate account, personal account, bank card/channel fields, and any drawer opened by "修改".
+- Tests must prove both the display grid and the edit form modules exist. A test that only checks card height, title, edit button, and generic value boxes can still pass while the actual form is missing.
+- Browser visual testing should be prepared as a final confirmation step, not used to discover that a module was omitted. The omission should be caught by module completeness tests first.
+
 ## Completion Checklist
 
 Before finishing, verify:
 
 - Figma context and metadata were read, or unavailability was explicitly stated.
 - Visual inventory includes all visible nodes in scope.
+- Module inventory includes every visible functional submodule, form branch, drawer/modal, repeated item, and state in scope.
 - Tests failed before implementation.
 - Tests pass after implementation.
-- Browser runtime measurements cover disputed and high-risk areas.
+- Browser visual testing preflight was prepared, reported to the user, and explicitly approved before any browser control.
+- Browser runtime measurements are minimal and cover disputed and high-risk areas.
 - Screenshot evidence was captured or the reason it was not captured is stated.
-- Final response lists exact verification commands and residual risk.
+- Final response lists exact verification commands, module coverage, and residual risk.
